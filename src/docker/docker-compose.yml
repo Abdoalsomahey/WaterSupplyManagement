@@ -1,0 +1,53 @@
+version: '3.8'
+services:
+  water_web:
+    container_name: water_web
+    build:
+      context: ../
+      dockerfile: docker/backend_docker/Dockerfile
+    restart: on-failure
+    ports:
+      - "8000:8000"
+    depends_on:
+      - water_postgres
+    env_file:
+      - ./.env
+    volumes:
+      - ../backend:/app
+      - ../frontend:/usr/share/nginx/html
+    networks:
+      - water_management_net
+
+  water_postgres:
+    image: postgres:latest
+    container_name: water_postgres
+    restart: on-failure
+    env_file:
+      - ./.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - water_management_net
+
+  water_nginx:
+    container_name: water_nginx
+    build:
+      context: ../../
+      dockerfile: src/docker/nginx/Dockerfile
+    volumes:
+      - ../frontend:/usr/share/nginx/html
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - water_web
+    restart: on-failure
+    networks:
+      - water_management_net
+
+volumes:
+  postgres_data:
+
+networks:
+  water_management_net:
+    driver: bridge
