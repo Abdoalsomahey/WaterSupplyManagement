@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import User, Customer, Order
+from .models import User, Customer, Order, Invoice
 from drf_spectacular.utils import extend_schema_field
 
 
@@ -26,13 +26,6 @@ class UserSerializer(serializers.ModelSerializer):
             user.is_staff = False
             user.is_superuser = False
         user.save()
-        
-        # if role:
-        #     try:
-        #         group = Group.objects.get(name=role.capitalize())
-        #         user.groups.add(group)
-        #     except Group.DoesNotExist:
-        #         pass
         return user
 
     def update(self, instance, validated_data):
@@ -42,20 +35,9 @@ class UserSerializer(serializers.ModelSerializer):
         if password:
             instance.set_password(password)
         instance.save()
-        # role = validated_data.get('role')
-        # if role:
-        #     instance.groups.clear()
-        #     try:
-        #         group = Group.objects.get(name=role.capitalize())
-        #         instance.groups.add(group)
-        #     except Group.DoesNotExist:
-        #         pass
         return instance
 
-class CustomerSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Customer
-        fields = "__all__"
+
 
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
@@ -100,10 +82,53 @@ class LogoutSerializer(serializers.Serializer):
 class CheckAuthSerializer(serializers.Serializer):
     authenticated = serializers.BooleanField()
 
-class OrderSerializer(serializers.ModelSerializer):
-    customer = CustomerSerializer(read_only=True)  
-    driver = UserSerializer(read_only=True)
 
+class CustomerSerializer(serializers.ModelSerializer):
+
+    delivery_days = serializers.ListField(
+        child=serializers.CharField(),
+        required=False
+    )
+
+    driver_username = serializers.SlugRelatedField(
+        slug_field="username",
+        queryset=User.objects.filter(role="driver"),
+        source="driver",
+        write_only=True
+    )
+    
+    driver = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model = Customer
+        fields = "__all__"
+        read_only_fields = ["driver"]
+
+        
+
+    def validate(self, attrs):
+        weekly_trips = attrs.get("weekly_trips")
+        days = attrs.get("delivery_days", [])
+
+        if weekly_trips:
+            if not days:
+                default_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                attrs["delivery_days"] = default_days[:weekly_trips]
+            elif len(days) != weekly_trips:
+                raise serializers.ValidationError(
+                    f"({len(days)})({weekly_trips})"
+                )
+
+        return attrs
+
+    def create(self, validated_data):
+        if isinstance(validated_data.get("delivery_days"), set):
+            validated_data["delivery_days"] = list(validated_data["delivery_days"])
+        return super().create(validated_data)
+
+class OrderSerializer(serializers.ModelSerializer):
+    customer = CustomerSerializer(read_only=True)
+    driver = UserSerializer(read_only=True)
 
     customer_name = serializers.SlugRelatedField(
         slug_field="full_name",
@@ -117,24 +142,56 @@ class OrderSerializer(serializers.ModelSerializer):
         source="driver",
         write_only=True
     )
+
+    is_late = serializers.SerializerMethodField()
+    proof_image = serializers.ImageField(read_only=True)
+    problem_reason = serializers.CharField(read_only=True)
+    filled_amount = serializers.IntegerField(read_only=True)
+    delivery_time  = serializers.TimeField(source="customer.delivery_time", read_only=True)
+    required_gallons = serializers.IntegerField(source="customer.gallons", read_only=True)
+    customer_location = serializers.URLField(source="customer.location_link", read_only=True)
     
-    @extend_schema_field(serializers.BooleanField)
+    class Meta:
+        model = Order
+        fields = "__all__"
+        read_only_fields = ["created_at", "confirmed_at", "status", "is_late",
+                             "proof_image", "problem_reason", "delivery_time",
+                             "filled_amount", "required_gallons", "customer_location"
+                             ]
+
     def get_is_late(self, obj):
         request = self.context.get("request")
         if request and hasattr(request.user, "role") and request.user.role == "admin":
             return obj.is_driver_late(minutes=30)
         return None
 
-    is_late = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Order
-        fields = "__all__"
-        read_only_fields = ["created_at", "confirmed_at", "status", "is_late"]
-
     def to_representation(self, instance):
         ret = super().to_representation(instance)
         request = self.context.get("request")
+        if not (
+            request and (
+                request.user == instance.driver
+                or (hasattr(request.user, "role") and request.user.role == "admin")
+            )
+        ):
+            ret.pop("proof_image", None)
+            ret.pop("filled_amount", None)
         if not (request and hasattr(request.user, "role") and request.user.role == "admin"):
             ret.pop("is_late", None)
         return ret
+
+
+class DriverOrderSerializer(serializers.ModelSerializer):
+    delivery_time  = serializers.TimeField(source="customer.delivery_time", read_only=True)
+    required_gallons = serializers.IntegerField(source="customer.gallons", read_only=True)
+    customer_location = serializers.URLField(source="customer.location_link", read_only=True)
+
+    class Meta:
+        model = Order
+        fields = ["id", "customer", "delivery_time", "filled_amount", "proof_image",
+                  "problem_reason", "status", "created_at", "required_gallons", "customer_location"]
+        read_only_fields = ["customer", "delivery_time", "status", "created_at",
+                            "problem_reason", "required_gallons", "customer_location"]
+
+
+# class InvoiceSerializer(serializers.ModelSerializer):

@@ -5,6 +5,17 @@ __pycache__/
 
 # env files
 *.env
+.env
+__pycache__
+migrations
+staticfiles
+certs
+localhost.crt
+localhost.key
+srcs/certs
+media
+media/*
+migrations/*
 
 # C extensions
 *.so

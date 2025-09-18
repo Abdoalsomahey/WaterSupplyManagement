@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 
+from datetime import timedelta
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -37,9 +38,9 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
 	'rest_framework',
-	# 'rest_framework.authtoken',
     'rest_framework_simplejwt',
 	'rest_framework_simplejwt.token_blacklist',
+	'channels',
     'corsheaders',
 	'drf_spectacular',
 	'api',
@@ -47,6 +48,16 @@ INSTALLED_APPS = [
 
 
 AUTH_USER_MODEL = "api.User"
+ASGI_APPLICATION = 'water_website.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('redis', 6379)],
+        },
+    },
+}
 
 # REST Framework Configuration
 REST_FRAMEWORK = {
@@ -54,13 +65,15 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     ),
 	"DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
+	"DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20, 
 }
 
 # Add JWT settings
-from datetime import timedelta
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
@@ -181,22 +194,6 @@ CORS_ALLOWED_ORIGINS = [
     "https://127.0.0.1",
     "https://water_nginx:443",
 ]
-
-# # Session settings
-# SESSION_ENGINE = 'django.contrib.sessions.backends.db'
-# SESSION_COOKIE_HTTPONLY = True
-# SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
-# SESSION_COOKIE_SAMESITE = 'Lax'  # Or 'None' if cross-site
-
-# CSRF settings
-# CSRF_USE_SESSIONS = False
-# CSRF_COOKIE_HTTPONLY = False
-# CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
-# CSRF_TRUSTED_ORIGINS = [
-#     "http://localhost:8000",
-#     "http://127.0.0.1:8000",
-# ]
-
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Water Supply Management API",

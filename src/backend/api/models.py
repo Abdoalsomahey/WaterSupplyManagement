@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 from django.contrib.auth.models import AbstractUser
+from datetime import timedelta
 
 
 class User(AbstractUser):
@@ -18,7 +19,14 @@ class User(AbstractUser):
 
 class Customer(models.Model):
     full_name = models.CharField(max_length=255, unique=True, blank=True, null=True)
-
+    driver = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        limit_choices_to={'role': 'driver'},
+        related_name="customers"
+    )
     area = models.CharField(max_length=255, blank=True, null=True)
     zone_number = models.CharField(max_length=100, blank=True, null=True)
     plot_number = models.CharField(max_length=100, blank=True, null=True)
@@ -29,11 +37,10 @@ class Customer(models.Model):
     agreement_without_meter = models.BooleanField(default=False)
 
     weekly_trips = models.IntegerField(blank=True, null=True)
-    two_trips = models.IntegerField(blank=True, null=True)
-    three_trips = models.IntegerField(blank=True, null=True)
-    four_trips = models.IntegerField(blank=True, null=True)
+    delivery_days = models.JSONField(default=list, blank=True)
+    delivery_time = models.TimeField(null=True, blank=True) 
 
-    gallons = models.CharField(max_length=100, blank=True, null=True)
+    gallons = models.IntegerField(blank=True, null=True)
     filling_stations = models.CharField(max_length=255, blank=True, null=True)
     location_link = models.URLField(blank=True, null=True)
 
@@ -46,20 +53,49 @@ class Order(models.Model):
         ("pending", "Pending"),
         ("confirmed", "Confirmed"),
         ("completed", "Completed"),
+        ("canceled", "Canceled"),
+        ("problem", "Problem"),
     ]
 
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="orders")
-    driver = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, limit_choices_to={'role': 'driver'})
-    
-    description = models.TextField(blank=True, null=True)
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        related_name="orders"
+    )
+    driver = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        limit_choices_to={'role': 'driver'}
+    )
+    filled_amount = models.IntegerField(null=True, blank=True)
+    proof_image = models.ImageField(
+        upload_to="orders/proofs/",
+        blank=True,
+        null=True
+    )
+    problem_reason = models.CharField(max_length=255, blank=True, null=True)
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
 
     created_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
 
-    def confirm(self):
+    def confirm(self, filled_amount, proof_image):
+        if not proof_image:
+            raise ValueError("Proof image is required")
+        if not filled_amount:
+            raise ValueError("Filled amount is required")
         self.status = "confirmed"
+        self.filled_amount = filled_amount
+        self.proof_image = proof_image
         self.confirmed_at = timezone.now()
+        self.save()
+
+    def mark_problem(self, reason):
+        self.status = "problem"
+        self.problem_reason = reason
         self.save()
 
     def is_driver_late(self, minutes=30):
@@ -70,3 +106,4 @@ class Order(models.Model):
     def __str__(self):
         return f"Order for {self.customer.full_name} ({self.status})"
 
+# class Invoice(models.Model):

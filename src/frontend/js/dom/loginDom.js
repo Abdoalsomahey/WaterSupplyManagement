@@ -13,6 +13,8 @@ export function dom_Btn_Login() {
             localStorage.setItem('access_token', tokens.access);
             localStorage.setItem('refresh_token', tokens.refresh);
 			localStorage.setItem('user_role', tokens.role);
+			localStorage.setItem('user_id', tokens.id);
+			localStorage.setItem('user_name', tokens.username);
             window.location.href = '/';
         } else {
             alert('Login failed');
