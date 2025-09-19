@@ -1,4 +1,5 @@
 version: '3.8'
+
 services:
   water_web:
     container_name: water_web
@@ -16,6 +17,7 @@ services:
     volumes:
       - ../backend:/app
       - ../frontend:/usr/share/nginx/html
+      - ../backend/media:/app/media   # mount media folder
     networks:
       - water_management_net
 
@@ -41,6 +43,38 @@ services:
     networks:
       - water_management_net
 
+  water_celery_worker:
+    container_name: water_celery_worker
+    build:
+      context: ../
+      dockerfile: docker/backend_docker/Dockerfile
+    command: celery -A water_website worker -l info
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ./.env
+    depends_on:
+      - water_web
+      - water_redis
+    networks:
+      - water_management_net
+
+  water_celery_beat:
+    container_name: water_celery_beat
+    build:
+      context: ../
+      dockerfile: docker/backend_docker/Dockerfile
+    command: celery -A water_website beat -l info
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ./.env
+    depends_on:
+      - water_web
+      - water_redis
+    networks:
+      - water_management_net
+
   water_nginx:
     container_name: water_nginx
     build:
@@ -48,6 +82,7 @@ services:
       dockerfile: src/docker/nginx/Dockerfile
     volumes:
       - ../frontend:/usr/share/nginx/html
+      - ../backend/media:/usr/share/nginx/html/media   # serve media
     ports:
       - "80:80"
       - "443:443"

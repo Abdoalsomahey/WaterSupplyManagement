@@ -39,3 +39,10 @@
 #                     customer_location=customer.location_link,
 #                     status="pending"
 #                 )
+
+from celery import shared_task
+
+@shared_task
+def sample_task():
+    print("🚀 Celery is running a scheduled task!")
+    return "done"
