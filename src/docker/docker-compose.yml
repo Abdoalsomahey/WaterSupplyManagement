@@ -17,14 +17,17 @@ services:
     volumes:
       - ../backend:/app
       - ../frontend:/usr/share/nginx/html
-      - ../backend/media:/app/media   # mount media folder
+      - ../backend/media:/app/media
     networks:
       - water_management_net
+    entrypoint: ["/water_app/entrypoint.sh"]
+    command: gunicorn water_website.wsgi:application --bind 0.0.0.0:8000 --workers 3
+
 
   water_postgres:
     image: postgres:latest
     container_name: water_postgres
-    restart: on-failure
+    restart: always
     env_file:
       - ./.env
     volumes:
@@ -35,7 +38,7 @@ services:
   water_redis:
     image: redis:latest
     container_name: water_redis
-    restart: on-failure
+    restart: always
     ports:
       - "6379:6379"
     volumes:
@@ -45,35 +48,38 @@ services:
 
   water_celery_worker:
     container_name: water_celery_worker
+    restart: on-failure
     build:
       context: ../
       dockerfile: docker/backend_docker/Dockerfile
-    command: celery -A water_website worker -l info
     volumes:
       - ../backend:/app
     env_file:
       - ./.env
     depends_on:
-      - water_web
       - water_redis
     networks:
       - water_management_net
+    entrypoint: ["/water_app/entrypoint.sh"]
+    command: celery -A water_website worker -l info
 
   water_celery_beat:
     container_name: water_celery_beat
+    restart: on-failure
     build:
       context: ../
       dockerfile: docker/backend_docker/Dockerfile
-    command: celery -A water_website beat -l info
     volumes:
       - ../backend:/app
     env_file:
       - ./.env
     depends_on:
-      - water_web
       - water_redis
     networks:
       - water_management_net
+    entrypoint: ["/water_app/entrypoint.sh"]
+    command: celery -A water_website beat -l info
+
 
   water_nginx:
     container_name: water_nginx
@@ -82,13 +88,13 @@ services:
       dockerfile: src/docker/nginx/Dockerfile
     volumes:
       - ../frontend:/usr/share/nginx/html
-      - ../backend/media:/usr/share/nginx/html/media   # serve media
+      - ../backend/media:/usr/share/nginx/html/media
     ports:
       - "80:80"
       - "443:443"
     depends_on:
       - water_web
-    restart: on-failure
+    restart: always
     networks:
       - water_management_net
 
@@ -99,3 +105,5 @@ volumes:
 networks:
   water_management_net:
     driver: bridge
+
+

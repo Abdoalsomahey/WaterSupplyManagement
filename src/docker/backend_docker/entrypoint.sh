@@ -1,25 +1,41 @@
 #!/bin/sh
 set -e
 
-echo "Waiting for Postgres..."
+# ----------------------------------
+# Wait for Postgres
+# ----------------------------------
+echo "Waiting for Postgres at $POSTGRES_HOST:5432..."
 while ! nc -z $POSTGRES_HOST 5432; do
   sleep 0.1
 done
-echo "Postgres is up"
+echo "Postgres is up!"
 
-# Apply migrations and collect static files
-python manage.py makemigrations
-python manage.py migrate
+# ----------------------------------
+# Wait for Redis (optional)
+# ----------------------------------
+echo "Waiting for Redis at $REDIS_HOST:6379..."
+while ! nc -z $REDIS_HOST 6379; do
+  sleep 0.1
+done
+echo "Redis is up!"
+
+# ----------------------------------
+# Apply migrations & collect static files
+# ----------------------------------
+echo "Applying migrations..."
+python manage.py migrate --noinput
+
+echo "Collecting static files..."
 python manage.py collectstatic --noinput
 
-# Create admin if not exists
+# ----------------------------------
+# Create superuser if not exists
+# ----------------------------------
 python - <<END
 import os
 import django
-
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'water_website.settings')
 django.setup()
-
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -35,5 +51,8 @@ else:
     print("Superuser 'admin' already exists.")
 END
 
-# Start Gunicorn server
-exec gunicorn water_website.wsgi:application --bind 0.0.0.0:8000
+# ----------------------------------
+# Execute the command passed to container
+# (web: gunicorn, worker: celery worker, beat: celery beat)
+# ----------------------------------
+exec "$@"

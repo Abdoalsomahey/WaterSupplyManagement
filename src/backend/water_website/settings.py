@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "channels",
     "corsheaders",
     "drf_spectacular",
+	'django_celery_beat',
 
     # Local apps
     "api",
@@ -174,9 +175,9 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "UTC"
 
 CELERY_BEAT_SCHEDULE = {
-    "sample-task": {
-        "task": "api.tasks.sample_task",
-        "schedule": crontab(minute="*/1"),
+    "generate_today_orders": {
+        "task": "api.tasks.generate_today_orders",
+        "schedule": crontab(minute="*/1"),  # كل دقيقة
     },
 }
 

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import User, Customer, Order, Invoice
+from .models import User, Customer, Order
 from drf_spectacular.utils import extend_schema_field
 
 
@@ -85,6 +85,7 @@ class CheckAuthSerializer(serializers.Serializer):
 
 class CustomerSerializer(serializers.ModelSerializer):
 
+    delivery_time = serializers.TimeField(format="%H:%M")
     delivery_days = serializers.ListField(
         child=serializers.CharField(),
         required=False
@@ -147,10 +148,7 @@ class OrderSerializer(serializers.ModelSerializer):
     proof_image = serializers.ImageField(read_only=True)
     problem_reason = serializers.CharField(read_only=True)
     filled_amount = serializers.IntegerField(read_only=True)
-    delivery_time  = serializers.TimeField(source="customer.delivery_time", read_only=True)
-    required_gallons = serializers.IntegerField(source="customer.gallons", read_only=True)
-    customer_location = serializers.URLField(source="customer.location_link", read_only=True)
-    
+
     class Meta:
         model = Order
         fields = "__all__"
@@ -182,16 +180,20 @@ class OrderSerializer(serializers.ModelSerializer):
 
 
 class DriverOrderSerializer(serializers.ModelSerializer):
-    delivery_time  = serializers.TimeField(source="customer.delivery_time", read_only=True)
-    required_gallons = serializers.IntegerField(source="customer.gallons", read_only=True)
-    customer_location = serializers.URLField(source="customer.location_link", read_only=True)
-
+    customer = serializers.SerializerMethodField()
+    
     class Meta:
         model = Order
-        fields = ["id", "customer", "delivery_time", "filled_amount", "proof_image",
-                  "problem_reason", "status", "created_at", "required_gallons", "customer_location"]
-        read_only_fields = ["customer", "delivery_time", "status", "created_at",
-                            "problem_reason", "required_gallons", "customer_location"]
-
-
-# class InvoiceSerializer(serializers.ModelSerializer):
+        fields = [
+            "id", "customer", "delivery_time", "filled_amount", "proof_image",
+            "problem_reason", "status", "created_at", "required_gallons", "customer_location"
+        ]
+        read_only_fields = [
+            "customer", "delivery_time", "status", "created_at",
+            "problem_reason", "required_gallons", "customer_location"
+        ]
+    def get_customer(self, obj):
+        return {
+            "full_name": obj.customer.full_name,
+            "phone": obj.customer.phone
+        }

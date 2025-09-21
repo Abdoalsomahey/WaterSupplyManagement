@@ -69,16 +69,17 @@ class Order(models.Model):
         blank=True,
         limit_choices_to={'role': 'driver'}
     )
-    filled_amount = models.IntegerField(null=True, blank=True)
     proof_image = models.ImageField(
         upload_to="orders/proofs/",
         blank=True,
         null=True
     )
+    delivery_time = models.DateTimeField(null=True, blank=True)
+    required_gallons = models.IntegerField(null=True, blank=True)
+    customer_location = models.URLField(null=True, blank=True)
+    filled_amount = models.IntegerField(null=True, blank=True)
     problem_reason = models.CharField(max_length=255, blank=True, null=True)
-
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
-
     created_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
 
@@ -105,5 +106,3 @@ class Order(models.Model):
 
     def __str__(self):
         return f"Order for {self.customer.full_name} ({self.status})"
-
-# class Invoice(models.Model):
