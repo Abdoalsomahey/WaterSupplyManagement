@@ -1,7 +1,7 @@
 from rest_framework import viewsets, filters
 from api.models import User
 from api.serializers import UserSerializer
-from api.permissions import IsAdmin
+from api.permissions import IsAdminOrManager
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import action
@@ -13,7 +13,7 @@ from openpyxl.utils import get_column_letter
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsAdminOrManager]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['role']  
@@ -21,6 +21,13 @@ class UserViewSet(viewsets.ModelViewSet):
     ordering_fields = ['id', 'username', 'role']  
     ordering = ['id']  
 
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == "manager":
+            return User.objects.filter(role="driver")
+        if user.role == "admin":
+            return User.objects.exclude(id=user.id)
+        return super().get_queryset()
     @action(detail=False, methods=["get"])
     def export_excel(self, request):
         queryset = self.filter_queryset(self.get_queryset())

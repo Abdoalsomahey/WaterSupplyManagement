@@ -1,30 +1,39 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import User, Customer, Order
+from .models import User, Customer, Order, RecheckInvoice, FinalInvoice, Complaint
 from drf_spectacular.utils import extend_schema_field
 
+
+from rest_framework import serializers
+from .models import User
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ('id', 'username', 'first_name', 'last_name', 'email', 'role', 'phone', 'password')
-        extra_kwargs = {
-            'password': {'write_only': True},
-        }
+        extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
+        request_user = self.context['request'].user
+        new_role = validated_data.get('role')
+
+        # 🔹 Manager يمكنه فقط إنشاء Drivers
+        if request_user.role == "manager" and new_role != "driver":
+            raise serializers.ValidationError("Managers can only create Drivers.")
+
+        # 🔹 Admin لا يمكنه إنشاء Admin آخر
+        if request_user.role == "admin" and new_role == "admin":
+            raise serializers.ValidationError("Admin cannot create another Admin.")
+
+        # 🔹 Accountant و Driver لا يمكنهم إنشاء أي مستخدم
+        if request_user.role in ["accountant", "driver"]:
+            raise serializers.ValidationError("You do not have permission to create users.")
+
         password = validated_data.pop('password', None)
         user = self.Meta.model(**validated_data)
-        role = validated_data.get('role')
         if password:
             user.set_password(password)
-        if role == "admin":
-            user.is_staff = True
-            user.is_superuser = True
-        else:
-            user.is_staff = False
-            user.is_superuser = False
         user.save()
         return user
 
@@ -197,3 +206,82 @@ class DriverOrderSerializer(serializers.ModelSerializer):
             "full_name": obj.customer.full_name,
             "phone": obj.customer.phone
         }
+    
+class RecheckInvoiceSerializer(serializers.ModelSerializer):
+    customer_name = serializers.CharField(source="customer.full_name", read_only=True)
+    customer_phone = serializers.CharField(source="customer.phone", read_only=True)
+    period_display = serializers.SerializerMethodField()
+    assigned_to = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role="accountant"), required=False
+    )
+
+    class Meta:
+        model = RecheckInvoice
+        fields = [
+            "id", "customer", "customer_name", "customer_phone",
+            "period_start", "period_end", "period_display",
+            "total_trips", "total_gallons", "status", "created_at",
+            "assigned_to",
+        ]
+        read_only_fields = [
+            "id", "customer_name", "customer_phone",
+            "period_start", "period_end", "period_display",
+            "total_trips", "total_gallons", "status", "created_at",
+        ]
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        return RecheckInvoice.objects.create(created_by=user, **validated_data)
+
+    def get_period_display(self, obj):
+        return f"{obj.period_start.strftime('%d/%m/%Y')} → {obj.period_end.strftime('%d/%m/%Y')}"
+
+
+class FinalInvoiceSerializer(serializers.ModelSerializer):
+    customer_name = serializers.CharField(source="recheck.customer.full_name", read_only=True)
+    customer_phone = serializers.CharField(source="recheck.customer.phone", read_only=True)
+    period_start = serializers.DateField(source="recheck.period_start", read_only=True)
+    period_end = serializers.DateField(source="recheck.period_end", read_only=True)
+    total_gallons = serializers.IntegerField(source="recheck.total_gallons", read_only=True)
+    total_trips = serializers.IntegerField(source="recheck.total_trips", read_only=True)
+    assigned_to = serializers.CharField(source="recheck.assigned_to.username", read_only=True)
+
+    class Meta:
+        model = FinalInvoice
+        fields = [
+            "id", "recheck", "customer_name", "customer_phone",
+            "period_start", "period_end",
+            "total_trips", "total_gallons",
+            "assigned_to",
+            "price_per_gallon", "subtotal", "vat_percent", "vat_amount", "total",
+            "notes", "created_by", "finalized_at"
+        ]
+        read_only_fields = ["subtotal", "vat_amount", "total", "finalized_at", "created_by"]
+        
+
+class ComplaintSerializer(serializers.ModelSerializer):
+    
+    customer = serializers.SlugRelatedField(
+        slug_field="full_name",  
+        queryset=Customer.objects.all()  
+    )
+
+    class Meta:
+        model = Complaint
+        fields = [
+            "id", "customer", "issue", "priority", "status",
+            "created_at", "order"
+        ]
+        read_only_fields = ["id", "created_at"]
+
+    def validate(self, data):
+        customer = data.get("customer")
+        order = data.get("order")
+
+        if not Customer.objects.filter(full_name=customer.full_name).exists():
+            raise serializers.ValidationError({"customer": "Customer does not exist."})
+        if order and order.customer != customer:
+            raise serializers.ValidationError({"order": "This order does not belong to the selected customer."})
+
+        return data
+    

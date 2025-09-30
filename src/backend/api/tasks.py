@@ -1,10 +1,10 @@
 from celery import shared_task
 from django.utils import timezone
-from datetime import timedelta, datetime
-from .models import Customer, Order
-from django.contrib.auth import get_user_model
+from datetime import timedelta, datetime, date
+from .models import Customer, Order, RecheckInvoice
+from django.db.models import Sum
+from dateutil.relativedelta import relativedelta
 
-User = get_user_model()
 
 @shared_task
 def generate_today_orders():
@@ -46,9 +46,48 @@ def generate_today_orders():
     
     return f"{len(new_orders)} orders created for today"
 
-# from celery import shared_task
 
-# @shared_task
-# def sample_task():
-#     print("🚀 Celery is running a scheduled task!")
-#     return "done"
+@shared_task
+def generate_recheck_invoices():
+    today = date.today()
+    customers = Customer.objects.exclude(starting_date__isnull=True)
+
+    for customer in customers:
+        start_date = customer.starting_date
+
+        last_invoice = RecheckInvoice.objects.filter(customer=customer).order_by("-period_end").first()
+
+        if last_invoice:
+           
+            current_start = last_invoice.period_end + timedelta(days=1)
+        else:
+            current_start = start_date
+
+        while current_start <= today:
+            current_end = current_start + relativedelta(days=29)
+            if current_end > today:
+               
+                break
+
+            orders = Order.objects.filter(
+                customer=customer,
+                created_at__date__gte=current_start,
+                created_at__date__lte=current_end,
+                status="confirmed"
+            )
+
+            total_trips = orders.count()
+            total_gallons = orders.aggregate(Sum("filled_amount"))["filled_amount__sum"] or 0
+
+            RecheckInvoice.objects.get_or_create(
+                customer=customer,
+                period_start=current_start,
+                defaults={
+                    "period_end": current_end,
+                    "total_trips": total_trips,
+                    "total_gallons": total_gallons,
+                },
+            )
+
+        
+            current_start = current_end + timedelta(days=1)

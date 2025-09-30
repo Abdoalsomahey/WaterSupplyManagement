@@ -9,12 +9,12 @@ from openpyxl.utils import get_column_letter
 
 from api.models import Customer
 from api.serializers import CustomerSerializer
-from api.permissions import IsAdmin
+from api.permissions import IsAdminOrManager
 
 class CustomerViewSet(viewsets.ModelViewSet):
     queryset = Customer.objects.all()
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsAdminOrManager]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = [

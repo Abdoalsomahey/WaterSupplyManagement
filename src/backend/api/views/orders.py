@@ -10,18 +10,18 @@ from openpyxl.utils import get_column_letter
 
 from api.models import Order
 from api.serializers import OrderSerializer, DriverOrderSerializer
-from api.permissions import IsAdmin, IsDriver
+from api.permissions import IsAdminOrManager, IsDriver
 
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsAdminOrManager]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["status", "customer__full_name", "driver__username"]
     search_fields = ["customer__full_name", "driver__username"]
     ordering_fields = ["created_at", "confirmed_at", "status"]
-    ordering = ["-created_at"]
+    ordering = ["-created_at", "id"]
     
     @action(detail=False, methods=["get"])
     def export_excel(self, request):

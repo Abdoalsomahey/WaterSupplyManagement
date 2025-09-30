@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ======================
 # Security & Debug
 # ======================
-SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = "s3cr3tkey123"
 DEBUG = os.getenv("DEBUG", "False") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
 
@@ -124,15 +124,21 @@ WSGI_APPLICATION = "water_website.wsgi.application"
 # ======================
 # Database
 # ======================
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.postgresql",
+#         "NAME": os.getenv("POSTGRES_DB"),
+#         "USER": os.getenv("POSTGRES_USER"),
+#         "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
+#         "HOST": os.getenv("POSTGRES_HOST"),
+#         "PORT": os.getenv("POSTGRES_PORT"),
+#     }
+# }
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB"),
-        "USER": os.getenv("POSTGRES_USER"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
-        "HOST": os.getenv("POSTGRES_HOST"),
-        "PORT": os.getenv("POSTGRES_PORT"),
-    }
+	"default": {
+		"ENGINE": "django.db.backends.sqlite3",
+		"NAME": BASE_DIR / "db.sqlite3",
+	}
 }
 
 # ======================
@@ -177,7 +183,12 @@ CELERY_TIMEZONE = "UTC"
 CELERY_BEAT_SCHEDULE = {
     "generate_today_orders": {
         "task": "api.tasks.generate_today_orders",
-        "schedule": crontab(minute="*/1"),  # كل دقيقة
+        "schedule": crontab(minute="*/1"),
+    },
+    "generate_recheck_invoices": {
+        "task": "api.tasks.generate_recheck_invoices",
+		"schedule": crontab(minute="*/1"),
+        # "schedule": crontab(minute=5, hour=0, day_of_month="1"),
     },
 }
 
