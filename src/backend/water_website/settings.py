@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ======================
 # Security & Debug
 # ======================
-SECRET_KEY = "s3cr3tkey123"
+SECRET_KEY = os.getenv("SECRET_KEY")
 DEBUG = os.getenv("DEBUG", "False") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
 
@@ -22,6 +22,8 @@ ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
 # Installed Apps
 # ======================
 INSTALLED_APPS = [
+	"daphne",
+	# Django default apps
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -39,7 +41,7 @@ INSTALLED_APPS = [
 	'django_celery_beat',
 
     # Local apps
-    "api",
+    'api.apps.ApiConfig',
 ]
 
 AUTH_USER_MODEL = "api.User"
@@ -79,7 +81,7 @@ REST_FRAMEWORK = {
 # ======================
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": False,
     "BLACKLIST_AFTER_ROTATION": True,
 }
@@ -124,21 +126,15 @@ WSGI_APPLICATION = "water_website.wsgi.application"
 # ======================
 # Database
 # ======================
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.postgresql",
-#         "NAME": os.getenv("POSTGRES_DB"),
-#         "USER": os.getenv("POSTGRES_USER"),
-#         "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
-#         "HOST": os.getenv("POSTGRES_HOST"),
-#         "PORT": os.getenv("POSTGRES_PORT"),
-#     }
-# }
 DATABASES = {
-	"default": {
-		"ENGINE": "django.db.backends.sqlite3",
-		"NAME": BASE_DIR / "db.sqlite3",
-	}
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("POSTGRES_DB"),
+        "USER": os.getenv("POSTGRES_USER"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
+        "HOST": os.getenv("POSTGRES_HOST"),
+        "PORT": os.getenv("POSTGRES_PORT"),
+    }
 }
 
 # ======================
@@ -155,7 +151,7 @@ DATABASES = {
 # Internationalization
 # ======================
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+TIME_ZONE = "Asia/Dubai"
 USE_I18N = True
 USE_TZ = True
 
@@ -163,10 +159,10 @@ USE_TZ = True
 # Static & Media
 # ======================
 STATIC_URL = "/static/"
-STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = "/media/"
-MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+MEDIA_ROOT = "/vol/media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -178,18 +174,19 @@ CELERY_RESULT_BACKEND = "redis://water_redis:6379/0"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = "UTC"
+CELERY_TIMEZONE = "Asia/Dubai"
 
 CELERY_BEAT_SCHEDULE = {
-    "generate_today_orders": {
-        "task": "api.tasks.generate_today_orders",
-        "schedule": crontab(minute="*/1"),
-    },
-    "generate_recheck_invoices": {
-        "task": "api.tasks.generate_recheck_invoices",
+    # "generate_today_orders": {
+    #     "task": "api.tasks.generate_today_orders",
+    #     "schedule": crontab(minute="*/1"),
+		# "schedule": crontab(minute=0, hour=0),
+    # },
+	"generate_monthly_invoices": {
+		"task": "api.tasks.generate_monthly_invoices",
 		"schedule": crontab(minute="*/1"),
-        # "schedule": crontab(minute=5, hour=0, day_of_month="1"),
-    },
+		# "schedule": crontab(minute=0, hour=0, day_of_month="1"),
+	},
 }
 
 # ======================

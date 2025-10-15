@@ -11,6 +11,9 @@ export function render_Dashboard() {
                     <button class="btn btn-outline-primary" id="refresh-dashboard">
                         <i class="bi bi-arrow-clockwise me-1"></i>Refresh
                     </button>
+                    <button class="btn btn-success" id="export-excel">
+                        <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+                    </button>
                 </div>
             </div>
 
@@ -56,7 +59,7 @@ export function render_Dashboard() {
                     <div class="card-body">
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
-                                <div class="kpi-label">Active Customers</div>
+                                <div class="kpi-label">New Customers</div>
                                 <div class="kpi-value" id="active-customers">-</div>
                                 <div class="kpi-change" id="customers-change">
                                     <i class="bi bi-arrow-up"></i>
@@ -95,7 +98,7 @@ export function render_Dashboard() {
                 <div class="col-lg-8 mb-4">
                     <div class="card">
                         <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">Orders & Revenue Trend</h5>
+                            <h5 class="mb-0">Orders Trend</h5>
                             <div class="btn-group btn-group-sm" role="group">
                                 <input type="radio" class="btn-check" name="chart-period" id="chart-7d" value="7d" checked>
                                 <label class="btn btn-outline-primary" for="chart-7d">7 Days</label>
@@ -165,7 +168,7 @@ export function render_Dashboard() {
                     <div class="card">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">Recent Orders</h5>
-                            <a href="#" class="btn btn-sm btn-outline-primary" data-route="/orders/">View All</a>
+                            <a href="/orders/" class="btn btn-sm btn-outline-primary" data-route="/orders/">View All</a>
                         </div>
                         <div class="card-body p-0">
                             <div class="table-container">
@@ -198,7 +201,7 @@ export function render_Dashboard() {
                     <div class="card">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">Recent Invoices</h5>
-                            <a href="#" class="btn btn-sm btn-outline-primary" data-route="/invoices/">View All</a>
+                            <a href="/invoices/" class="btn btn-sm btn-outline-primary" data-route="/invoices/">View All</a>
                         </div>
                         <div class="card-body p-0">
                             <div class="table-container">
@@ -238,28 +241,10 @@ export function render_Dashboard() {
                             <div class="row" id="alerts-container">
                                 <div class="col-md-4 mb-3">
                                     <div class="alert alert-warning d-flex align-items-center" role="alert">
-                                        <i class="bi bi-exclamation-triangle me-2"></i>
+                                        <i class="bi bi-clock me-2"></i>
                                         <div>
-                                            <strong>3 Orders Pending</strong><br>
-                                            <small>Orders need driver assignment</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4 mb-3">
-                                    <div class="alert alert-danger d-flex align-items-center" role="alert">
-                                        <i class="bi bi-credit-card me-2"></i>
-                                        <div>
-                                            <strong>2 Overdue Invoices</strong><br>
-                                            <small>Total: $486.00</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4 mb-3">
-                                    <div class="alert alert-info d-flex align-items-center" role="alert">
-                                        <i class="bi bi-chat-dots me-2"></i>
-                                        <div>
-                                            <strong>1 New Complaint</strong><br>
-                                            <small>Requires immediate attention</small>
+                                            <strong>Loading...</strong><br>
+                                            <small>Please wait</small>
                                         </div>
                                     </div>
                                 </div>

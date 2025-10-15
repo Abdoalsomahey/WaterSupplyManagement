@@ -4,52 +4,19 @@ export function render_Complaints() {
             <!-- Page Header -->
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div>
-                    <h1 class="h3 mb-1">Complaints & Notifications</h1>
+                    <h1 class="h3 mb-1">Complaints Management</h1>
                     <p class="text-muted mb-0">Manage customer complaints and system notifications.</p>
                 </div>
                 <div class="d-flex gap-2">
                     <button class="btn btn-outline-primary" id="mark-all-read">
                         <i class="bi bi-check-all me-1"></i>Mark All Read
                     </button>
+                    <button class="btn btn-success" id="export-complaints">
+                        <i class="bi bi-download me-1"></i>Export Excel
+                    </button>
                     <button class="btn btn-primary" id="add-complaint">
                         <i class="bi bi-plus-lg me-1"></i>Add Complaint
                     </button>
-                </div>
-            </div>
-
-            <!-- Complaint Stats Cards -->
-            <div class="row mb-4">
-                <div class="col-md-3">
-                    <div class="card text-center">
-                        <div class="card-body">
-                            <div class="text-primary fs-2 fw-bold" id="total-complaints-count">-</div>
-                            <div class="text-muted">Total Complaints</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center">
-                        <div class="card-body">
-                            <div class="text-warning fs-2 fw-bold" id="new-complaints-count">-</div>
-                            <div class="text-muted">New</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center">
-                        <div class="card-body">
-                            <div class="text-info fs-2 fw-bold" id="in-progress-count">-</div>
-                            <div class="text-muted">In Progress</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center">
-                        <div class="card-body">
-                            <div class="text-success fs-2 fw-bold" id="resolved-count">-</div>
-                            <div class="text-muted">Resolved</div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -74,9 +41,9 @@ export function render_Complaints() {
                 <!-- Complaints Tab -->
                 <div class="tab-pane fade show active" id="complaints" role="tabpanel">
                     <!-- Search and Filter Bar -->
-                    <div class="search-filter-bar">
+                    <div class="search-filter-bar mb-4">
                         <div class="row g-3">
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <div class="input-group">
                                     <span class="input-group-text"><i class="bi bi-search"></i></span>
                                     <input type="text" class="form-control" id="complaint-search" placeholder="Search complaints...">
@@ -99,15 +66,22 @@ export function render_Complaints() {
                                 </select>
                             </div>
                             <div class="col-md-2">
-                                <select class="form-select" id="customer-filter">
-                                    <option value="">All Customers</option>
-                                    <!-- Customer options will be populated dynamically -->
+                                <select class="form-select" id="ordering-filter">
+                                    <option value="-created_at">Newest First</option>
+                                    <option value="created_at">Oldest First</option>
+                                    <option value="priority">Priority</option>
+                                    <option value="-priority">Priority (Desc)</option>
                                 </select>
                             </div>
-                            <div class="col-md-2">
-                                <button class="btn btn-outline-secondary w-100" id="clear-filters">
-                                    <i class="bi bi-x-lg me-1"></i>Clear
-                                </button>
+                            <div class="col-md-3">
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-outline-secondary w-50" id="clear-filters">
+                                        <i class="bi bi-x-lg me-1"></i>Clear
+                                    </button>
+                                    <button class="btn btn-outline-info w-50" onclick="loadComplaints()">
+                                        <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -116,10 +90,10 @@ export function render_Complaints() {
                     <div class="card">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">Complaints List</h5>
-                            <div class="d-flex gap-2">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" id="select-all">
-                                    <label class="form-check-label" for="select-all">
+                            <div class="d-flex gap-2 align-items-center">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="select-all-checkbox">
+                                    <label class="form-check-label small" for="select-all-checkbox">
                                         Select All
                                     </label>
                                 </div>
@@ -134,21 +108,21 @@ export function render_Complaints() {
                             </div>
                         </div>
                         <div class="card-body p-0">
-                            <div class="table-container">
+                            <div class="table-responsive">
                                 <table class="table table-hover mb-0">
-                                    <thead>
+                                    <thead class="table-light">
                                         <tr>
                                             <th width="50">
-                                                <input type="checkbox" class="form-check-input" id="select-all-checkbox">
+                                                <input type="checkbox" class="form-check-input" id="select-all-header">
                                             </th>
                                             <th>ID</th>
                                             <th>Customer</th>
                                             <th>Issue</th>
                                             <th>Priority</th>
                                             <th>Status</th>
-                                            <th>Date</th>
+                                            <th>Created Date</th>
                                             <th>Order #</th>
-                                            <th width="120">Actions</th>
+                                            <th width="180" class="text-center">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody id="complaints-table">

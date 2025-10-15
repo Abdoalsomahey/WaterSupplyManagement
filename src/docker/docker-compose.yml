@@ -16,12 +16,11 @@ services:
       - ./.env
     volumes:
       - ../backend:/app
-      - ../frontend:/usr/share/nginx/html
-      - ../backend/media:/app/media
+      - media-data:/vol/media
     networks:
       - water_management_net
     entrypoint: ["/water_app/entrypoint.sh"]
-    command: gunicorn water_website.wsgi:application --bind 0.0.0.0:8000 --workers 3
+
 
 
   water_postgres:
@@ -52,16 +51,17 @@ services:
     build:
       context: ../
       dockerfile: docker/backend_docker/Dockerfile
+    command: celery -A water_website worker -l info
     volumes:
       - ../backend:/app
     env_file:
       - ./.env
     depends_on:
+      - water_postgres
       - water_redis
+      - water_web
     networks:
       - water_management_net
-    entrypoint: ["/water_app/entrypoint.sh"]
-    command: celery -A water_website worker -l info
 
   water_celery_beat:
     container_name: water_celery_beat
@@ -69,16 +69,18 @@ services:
     build:
       context: ../
       dockerfile: docker/backend_docker/Dockerfile
+    command: celery -A water_website beat -l info
     volumes:
       - ../backend:/app
     env_file:
       - ./.env
     depends_on:
+      - water_postgres
       - water_redis
+      - water_web
     networks:
       - water_management_net
-    entrypoint: ["/water_app/entrypoint.sh"]
-    command: celery -A water_website beat -l info
+
 
 
   water_nginx:
@@ -88,7 +90,7 @@ services:
       dockerfile: src/docker/nginx/Dockerfile
     volumes:
       - ../frontend:/usr/share/nginx/html
-      - ../backend/media:/usr/share/nginx/html/media
+      - media-data:/vol/media
     ports:
       - "80:80"
       - "443:443"
@@ -101,6 +103,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  media-data:
 
 networks:
   water_management_net:

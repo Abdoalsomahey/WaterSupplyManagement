@@ -50,11 +50,11 @@ function handleRouteChange() {
 	const path = window.location.pathname;
 	if (path === '/') {
         const role = localStorage.getItem('user_role');
-        if (role === 'admin') {
+        if (role === 'admin' || role === 'manager') {
             navigateTo('/dashboard/');
             return;
         } else if (role === 'accountant') {
-            navigateTo('/invoices/');
+            navigateTo('/accountant/invoices/');
             return;
         } else if (role === 'driver') {
             navigateTo('/driver-orders/');
@@ -80,16 +80,13 @@ function applyRoleBasedUI() {
         item.style.display = 'none';
     });
 
-    if (role === 'admin') {
+    if (role === 'admin' || role === 'manager') {
         document.querySelectorAll('.nav-item').forEach(item => item.style.display = 'block');
-		document.querySelector('[href="/driver-orders/"]').parentElement.style.display = 'none';
     }
     if (role === 'accountant') {
-        document.querySelector('[href="/invoices/"]').parentElement.style.display = 'block';
 		document.getElementById('notification').style.display = 'none';
     }
     if (role === 'driver') {
-        document.querySelector('[href="/driver-orders/"]').parentElement.style.display = 'block';
 		document.getElementById('notification').style.display = 'none';
 
 

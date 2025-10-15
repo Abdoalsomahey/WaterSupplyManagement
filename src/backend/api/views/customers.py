@@ -18,15 +18,18 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = [
-        "area", "zone_number", "plot_number", "property_type", "account_number"
+        "id", "area", "zone_number", "plot_number", "property_type", "account_number"
     ]  
     search_fields = ["full_name", "phone", "location_link"]
-    ordering_fields = ["id", "full_name", "account_number", "starting_date"]
+    ordering_fields = ["id", "full_name", "account_number", "starting_date", "registration_date"]
     ordering = ["id"]
     
     @action(detail=False, methods=["get"])
     def export_excel(self, request):
+        ids = request.GET.getlist("id")
         queryset = self.filter_queryset(self.get_queryset())
+        if ids:
+            queryset = queryset.filter(id__in=ids)
 
         workbook = openpyxl.Workbook()
         sheet = workbook.active
@@ -37,7 +40,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
             "Property Type", "Account Number", "Starting Date",
             "Agreement Without Meter", "Weekly Trips","Gallons", 
             "Filling Stations", "Location Link", "Delivery Days", 
-            "Driver Username", "Delivery Time"
+            "Driver Username", "Delivery Time", "Registration Date"
         ]
         sheet.append(headers)
 
@@ -60,6 +63,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 ", ".join(customer.delivery_days or []),
                 customer.driver.username if customer.driver else "",
                 customer.delivery_time,
+                customer.registration_date.strftime("%Y-%m-%d %H:%M") if customer.registration_date else "",
             ])
 
 

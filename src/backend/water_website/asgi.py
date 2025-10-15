@@ -1,34 +1,27 @@
-"""
-ASGI config for water_website project.
-
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/
-"""
-
 import os
-
+import django
+from channels.routing import ProtocolTypeRouter, URLRouter
 from django.core.asgi import get_asgi_application
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'water_website.settings')
+django.setup()
 
-application = get_asgi_application()
+from api.middleware.jwt_auth_middleware import JWTAuthMiddleware  # ✅ استيراد الميدلوير المخصص
 
+# Defining WebSocket routing
+def get_websocket_urlpatterns():
+    from django.urls import re_path
+    from api.consumers import NotificationConsumer
+    return [
+        re_path(r"ws/notifications/$", NotificationConsumer.as_asgi()),
+    ]
 
-# import os
-# import django
-# from channels.routing import ProtocolTypeRouter, URLRouter
-# from channels.auth import AuthMiddlewareStack
-# from django.core.asgi import get_asgi_application
-
-# os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'water_website.settings')
-# django.setup()
-
-# application = ProtocolTypeRouter({
-#     "http": get_asgi_application(),
-#     "websocket": AuthMiddlewareStack(
-#         URLRouter(
-#         )
-#     ),
-# })
+# Configuring the ASGI application
+application = ProtocolTypeRouter({
+    "http": get_asgi_application(),
+    "websocket": JWTAuthMiddleware(
+        URLRouter(
+            get_websocket_urlpatterns()
+        )
+    ),
+})

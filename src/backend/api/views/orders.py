@@ -8,9 +8,11 @@ from django.http import HttpResponse
 import openpyxl
 from openpyxl.utils import get_column_letter
 
-from api.models import Order
+from api.models import Order, User, Notification
 from api.serializers import OrderSerializer, DriverOrderSerializer
 from api.permissions import IsAdminOrManager, IsDriver
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
@@ -18,14 +20,17 @@ class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsAdminOrManager]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ["status", "customer__full_name", "driver__username"]
+    filterset_fields = ["id", "status", "customer__full_name", "driver__username"]
     search_fields = ["customer__full_name", "driver__username"]
-    ordering_fields = ["created_at", "confirmed_at", "status"]
+    ordering_fields = ["created_at", "completed_at", "status"]
     ordering = ["-created_at", "id"]
     
     @action(detail=False, methods=["get"])
     def export_excel(self, request):
+        ids = request.GET.getlist("id")
         queryset = self.filter_queryset(self.get_queryset())
+        if ids:
+            queryset = queryset.filter(id__in=ids)
 
         workbook = openpyxl.Workbook()
         sheet = workbook.active
@@ -33,8 +38,8 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         headers = [
             "ID", "Customer", "Driver", "Status",
-            "Created At", "Confirmed At", "Filled Amount",
-            "Is Late", "Problem Reason", "Proof Image"
+            "Created At", "Completed At", "Filled Amount",
+            "Is Late", "Failure Reason", "Proof Image"
         ]
         sheet.append(headers)
 
@@ -45,10 +50,10 @@ class OrderViewSet(viewsets.ModelViewSet):
                 order.driver.username if order.driver else "-",
                 order.status,
                 order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else "",
-                order.confirmed_at.strftime("%Y-%m-%d %H:%M") if order.confirmed_at else "",
+                order.completed_at.strftime("%Y-%m-%d %H:%M") if order.completed_at else "",
                 getattr(order, "filled_amount", "-"),
                 order.is_driver_late(minutes=30),
-                getattr(order, "problem_reason", "-"),
+                getattr(order, "failure_reason", "-"),
                 order.proof_image.url if order.proof_image else "-",
             ])
 
@@ -85,7 +90,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 #
 #     headers = [
 #         "ID", "Customer", "Driver", "Status",
-#         "Created At", "Confirmed At", "Filled Amount",
+#         "Created At", "Delivered At", "Filled Amount",
 #         "Is Late", "Problem Reason", "Proof Image"
 #     ]
 #     sheet.append(headers)
@@ -97,10 +102,10 @@ class OrderViewSet(viewsets.ModelViewSet):
 #             order.driver.username if order.driver else "-",
 #             order.status,
 #             order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else "",
-#             order.confirmed_at.strftime("%Y-%m-%d %H:%M") if order.confirmed_at else "",
+#             order.completed_at.strftime("%Y-%m-%d %H:%M") if order.completed_at else "",
 #             getattr(order, "filled_amount", "-"),
 #             order.is_driver_late(minutes=30),
-#             getattr(order, "problem_reason", "-"),
+#             getattr(order, "failure_reason", "-"),
 #             ""  # proof image placeholder
 #         ]
 #         sheet.append(row)
@@ -126,7 +131,7 @@ class DriverOrderViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["status"]
     search_fields = ["customer__full_name"]
-    ordering_fields = ["created_at", "confirmed_at"]
+    ordering_fields = ["created_at", "completed_at"]
     ordering = ["-created_at"]
 
     def get_queryset(self):
@@ -138,7 +143,7 @@ class DriverOrderViewSet(viewsets.ReadOnlyModelViewSet):
         if order.driver != request.user:
             return Response({"error": "This order is not assigned to you"}, status=403)
         if order.status != "pending":
-            return Response({"error": "Order already confirmed or completed"}, status=400)
+            return Response({"error": "Order already completed or failed"}, status=400)
 
         filled_amount = request.data.get("filled_amount")
         proof_image = request.FILES.get("proof_image")
@@ -149,24 +154,46 @@ class DriverOrderViewSet(viewsets.ReadOnlyModelViewSet):
         order.confirm(filled_amount=filled_amount, proof_image=proof_image)
         serializer = self.get_serializer(order)
         return Response({
-            "message": "Order confirmed successfully",
-            "confirmed_at": order.confirmed_at,
+            "message": "Order completed successfully",
+            "completed_at": order.completed_at,
             "order": serializer.data
         }, status=200)
 
     @action(detail=True, methods=["post"])
-    def problem(self, request, pk=None):
+    def failed(self, request, pk=None):
         order = self.get_object()
         if order.driver != request.user:
             return Response({"error": "This order is not assigned to you"}, status=403)
 
         reason = request.data.get("reason")
         if not reason:
-            return Response({"error": "Problem reason is required"}, status=400)
+            return Response({"error": "Failure reason is required"}, status=400)
 
-        order.mark_problem(reason)
+        order.mark_failed(reason)
+
+        admins_and_managers = User.objects.filter(role__in=["admin", "manager"])
+        notifications = []
+        for user in admins_and_managers:
+            notification = Notification.objects.create(
+                recipient=user,
+                message=f"Failure reported in Order #{order.id}: {reason}",
+                order=order
+            )
+            notifications.append(notification)
+
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f"user_{user.id}",
+                {
+                    "type": "send_notification",
+                    "message": notification.message,
+                    "order_id": order.id,
+                    "created_at": str(notification.created_at),
+                }
+            )
+
         serializer = self.get_serializer(order)
         return Response({
-            "message": "Problem reported",
+            "message": "Order marked as failed",
             "order": serializer.data
         }, status=200)

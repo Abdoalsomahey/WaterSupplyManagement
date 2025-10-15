@@ -1,4 +1,12 @@
-import { mockApi_GetDashboardData, sampleDashboardData } from '../apis.js';
+import { 
+    api_RefreshDashboard, 
+    api_GetDashboardChartData, 
+    api_GetDashboardRecentOrders, 
+    api_GetDashboardRecentInvoices, 
+    api_GetDashboardAlerts,
+    api_ExportDashboardExcel
+} from '../apis.js';
+import { navigateTo } from '../spa.js';
 
 export function initDashboard() {
     loadDashboardData();
@@ -10,24 +18,34 @@ async function loadDashboardData() {
         // Show loading state
         showLoadingState();
         
-        // Load dashboard data
-        const response = await mockApi_GetDashboardData();
-        const data = await response.json();
-        
-        // Update KPI cards
-        updateKPICards(data.kpis);
-        
-        // Update recent orders table
-        updateRecentOrdersTable(data.recent_orders);
-        
-        // Update recent invoices table
-        updateRecentInvoicesTable(data.recent_invoices);
-        
-        // Update quick stats
-        updateQuickStats(data);
-        
-        // Create chart
-        createOrdersChart(data.chart_data.orders_over_time);
+        // Load all dashboard data concurrently
+        const [summaryResponse, chartResponse, ordersResponse, invoicesResponse, alertsResponse] = await Promise.all([
+            api_RefreshDashboard(),
+            api_GetDashboardChartData("7d"),
+            api_GetDashboardRecentOrders(),
+            api_GetDashboardRecentInvoices(),
+            api_GetDashboardAlerts()
+        ]);
+
+        // Check if all responses are ok
+        if (!summaryResponse.ok || !chartResponse.ok || !ordersResponse.ok || !invoicesResponse.ok || !alertsResponse.ok) {
+            throw new Error('Failed to load dashboard data');
+        }
+
+        // Parse responses
+        const summaryData = await summaryResponse.json();
+        const chartData = await chartResponse.json();
+        const recentOrders = await ordersResponse.json();
+        const recentInvoices = await invoicesResponse.json();
+        const alertsData = await alertsResponse.json();
+
+        // Update all dashboard components
+        updateKPICards(summaryData);
+        updateRecentOrdersTable(recentOrders);
+        updateRecentInvoicesTable(recentInvoices);
+        updateQuickStats(summaryData);
+        createOrdersChart(chartData);
+        updateAlerts(alertsData);
         
     } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -35,40 +53,23 @@ async function loadDashboardData() {
     }
 }
 
-function updateKPICards(kpis) {
+function updateKPICards(summaryData) {
     // Total Orders
-    document.getElementById('total-orders').textContent = kpis.total_orders.value.toLocaleString();
-    updateKPIChange('orders-change', kpis.total_orders.change, kpis.total_orders.trend);
-    
-    // Total Revenue
-    document.getElementById('total-revenue').textContent = `$${kpis.total_revenue.value.toLocaleString()}`;
-    updateKPIChange('revenue-change', kpis.total_revenue.change, kpis.total_revenue.trend);
-    
-    // Active Customers
-    document.getElementById('active-customers').textContent = kpis.active_customers.value.toLocaleString();
-    updateKPIChange('customers-change', kpis.active_customers.change, kpis.active_customers.trend);
+    document.getElementById('total-orders').textContent = summaryData.orders_count.toLocaleString();
     
     // Pending Orders
-    document.getElementById('pending-orders').textContent = kpis.pending_orders.value.toLocaleString();
-    updateKPIChange('pending-change', kpis.pending_orders.change, kpis.pending_orders.trend);
-}
-
-function updateKPIChange(elementId, change, trend) {
-    const element = document.getElementById(elementId);
-    const icon = element.querySelector('i');
-    const span = element.querySelector('span');
+    document.getElementById('pending-orders').textContent = summaryData.orders_pending.toLocaleString();
     
-    // Update icon based on trend
-    if (trend === 'up') {
-        icon.className = 'bi bi-arrow-up';
-        element.className = 'kpi-change positive';
-    } else {
-        icon.className = 'bi bi-arrow-down';
-        element.className = 'kpi-change negative';
-    }
+    // Total Revenue (using invoices_total)
+    document.getElementById('total-revenue').textContent = `$${parseFloat(summaryData.invoices_total || 0).toLocaleString()}`;
     
-    // Update change text
-    span.textContent = `${Math.abs(change)}% from last period`;
+    // Active Customers (using new_customers)
+    document.getElementById('active-customers').textContent = summaryData.new_customers.toLocaleString();
+    
+    // Remove change indicators since they're not in the API
+    document.querySelectorAll('.kpi-change').forEach(el => {
+        el.style.display = 'none';
+    });
 }
 
 function updateRecentOrdersTable(orders) {
@@ -88,10 +89,10 @@ function updateRecentOrdersTable(orders) {
     
     tbody.innerHTML = orders.map(order => `
         <tr>
-            <td><strong>${order.order_number}</strong></td>
-            <td>${order.customer_name}</td>
+            <td><strong>#${order.id}</strong></td>
+            <td>${order.customer || 'N/A'}</td>
             <td><span class="status-badge ${order.status}">${order.status}</span></td>
-            <td>$${order.total_amount.toFixed(2)}</td>
+            <td>${order.amount ? `$${parseFloat(order.amount).toFixed(2)}` : 'N/A'}</td>
             <td>${formatDate(order.date)}</td>
         </tr>
     `).join('');
@@ -114,45 +115,61 @@ function updateRecentInvoicesTable(invoices) {
     
     tbody.innerHTML = invoices.map(invoice => `
         <tr>
-            <td><strong>${invoice.invoice_number}</strong></td>
-            <td>${invoice.customer_name}</td>
+            <td><strong>#${invoice.id}</strong></td>
+            <td>${invoice.customer || 'N/A'}</td>
             <td><span class="status-badge ${invoice.status}">${invoice.status}</span></td>
-            <td>$${invoice.total.toFixed(2)}</td>
+            <td>${invoice.amount ? `$${parseFloat(invoice.amount).toFixed(2)}` : 'N/A'}</td>
             <td>${formatDate(invoice.date)}</td>
         </tr>
     `).join('');
 }
 
-function updateQuickStats(data) {
-    // Calculate today's stats
-    const today = new Date().toISOString().split('T')[0];
-    const todayOrders = data.recent_orders.filter(order => 
-        order.date.startsWith(today)
-    ).length;
+function updateQuickStats(summaryData) {
+    // Update elements with data from summary
+    document.getElementById('today-orders').textContent = summaryData.today_orders || 0;
+    document.getElementById('today-revenue').textContent = `$${parseFloat(summaryData.today_revenue || 0).toFixed(0)}`;
+    document.getElementById('avg-order-value').textContent = `$${parseFloat(summaryData.avg_order_value || 0).toFixed(0)}`;
+    document.getElementById('conversion-rate').textContent = parseFloat(summaryData.conversion_rate || 0).toFixed(1);
+}
+
+function updateAlerts(alertsData) {
+    const container = document.getElementById('alerts-container');
     
-    const todayRevenue = data.recent_orders
-        .filter(order => order.date.startsWith(today))
-        .reduce((sum, order) => sum + order.total_amount, 0);
-    
-    const avgOrderValue = data.recent_orders.length > 0 
-        ? data.recent_orders.reduce((sum, order) => sum + order.total_amount, 0) / data.recent_orders.length
-        : 0;
-    
-    const conversionRate = data.kpis.active_customers.value > 0 
-        ? (data.kpis.total_orders.value / data.kpis.active_customers.value).toFixed(1)
-        : 0;
-    
-    // Update elements
-    document.getElementById('today-orders').textContent = todayOrders;
-    document.getElementById('today-revenue').textContent = `$${todayRevenue.toFixed(0)}`;
-    document.getElementById('avg-order-value').textContent = `$${avgOrderValue.toFixed(0)}`;
-    document.getElementById('conversion-rate').textContent = conversionRate;
+    container.innerHTML = `
+        <div class="col-md-4 mb-3">
+            <div class="alert alert-warning d-flex align-items-center" role="alert">
+                <i class="bi bi-clock me-2"></i>
+                <div>
+                    <strong>${alertsData.pending_orders} Pending Orders</strong><br>
+                    <small>Orders waiting for processing</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="alert alert-danger d-flex align-items-center" role="alert">
+                <i class="bi bi-credit-card me-2"></i>
+                <div>
+                    <strong>${alertsData.overdue_invoices} Overdue Invoices</strong><br>
+                    <small>Invoices requiring attention</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="alert alert-info d-flex align-items-center" role="alert">
+                <i class="bi bi-chat-dots me-2"></i>
+                <div>
+                    <strong>${alertsData.new_complaints} New Complaints</strong><br>
+                    <small>Customer complaints to review</small>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 function createOrdersChart(chartData) {
     const container = document.getElementById('orders-chart');
     
-    if (!chartData || chartData.length === 0) {
+    if (!chartData.orders || chartData.orders.length === 0) {
         container.innerHTML = `
             <div class="text-center text-muted">
                 <i class="bi bi-bar-chart fs-1 mb-3"></i>
@@ -174,14 +191,13 @@ function createOrdersChart(chartData) {
     const height = 250 - margin.top - margin.bottom;
     
     // Find max values for scaling
-    const maxOrders = Math.max(...chartData.map(d => d.orders));
-    const maxRevenue = Math.max(...chartData.map(d => d.revenue));
+    const maxOrders = Math.max(...chartData.orders.map(d => d.count));
     
     // Create bars for orders
-    chartData.forEach((d, i) => {
-        const x = margin.left + (i * (width / chartData.length)) + 10;
-        const barWidth = (width / chartData.length) - 20;
-        const barHeight = (d.orders / maxOrders) * height * 0.4;
+    chartData.orders.forEach((d, i) => {
+        const x = margin.left + (i * (width / chartData.orders.length)) + 10;
+        const barWidth = (width / chartData.orders.length) - 20;
+        const barHeight = (d.count / maxOrders) * height * 0.8;
         const y = margin.top + height - barHeight;
         
         // Order bars (blue)
@@ -194,19 +210,6 @@ function createOrdersChart(chartData) {
         orderBar.setAttribute('opacity', '0.7');
         svg.appendChild(orderBar);
         
-        // Revenue bars (green)
-        const revenueBarHeight = (d.revenue / maxRevenue) * height * 0.4;
-        const revenueY = margin.top + height - revenueBarHeight - barHeight - 5;
-        
-        const revenueBar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        revenueBar.setAttribute('x', x);
-        revenueBar.setAttribute('y', revenueY);
-        revenueBar.setAttribute('width', barWidth);
-        revenueBar.setAttribute('height', revenueBarHeight);
-        revenueBar.setAttribute('fill', '#198754');
-        revenueBar.setAttribute('opacity', '0.7');
-        svg.appendChild(revenueBar);
-        
         // Date labels
         const dateLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         dateLabel.setAttribute('x', x + barWidth / 2);
@@ -214,8 +217,18 @@ function createOrdersChart(chartData) {
         dateLabel.setAttribute('text-anchor', 'middle');
         dateLabel.setAttribute('font-size', '10');
         dateLabel.setAttribute('fill', '#6c757d');
-        dateLabel.textContent = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        dateLabel.textContent = new Date(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         svg.appendChild(dateLabel);
+        
+        // Value labels
+        const valueLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        valueLabel.setAttribute('x', x + barWidth / 2);
+        valueLabel.setAttribute('y', y - 5);
+        valueLabel.setAttribute('text-anchor', 'middle');
+        valueLabel.setAttribute('font-size', '10');
+        valueLabel.setAttribute('fill', '#495057');
+        valueLabel.textContent = d.count;
+        svg.appendChild(valueLabel);
     });
     
     // Add Y-axis
@@ -258,25 +271,7 @@ function createOrdersChart(chartData) {
     ordersText.textContent = 'Orders';
     ordersLegend.appendChild(ordersText);
     
-    const revenueLegend = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    const revenueRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    revenueRect.setAttribute('x', margin.left + width - 120);
-    revenueRect.setAttribute('y', margin.top + 30);
-    revenueRect.setAttribute('width', '12');
-    revenueRect.setAttribute('height', '12');
-    revenueRect.setAttribute('fill', '#198754');
-    revenueLegend.appendChild(revenueRect);
-    
-    const revenueText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    revenueText.setAttribute('x', margin.left + width - 100);
-    revenueText.setAttribute('y', margin.top + 40);
-    revenueText.setAttribute('font-size', '12');
-    revenueText.setAttribute('fill', '#495057');
-    revenueText.textContent = 'Revenue';
-    revenueLegend.appendChild(revenueText);
-    
     legend.appendChild(ordersLegend);
-    legend.appendChild(revenueLegend);
     svg.appendChild(legend);
     
     container.innerHTML = '';
@@ -295,11 +290,66 @@ function setupEventListeners() {
     // Chart period buttons
     const chartPeriods = document.querySelectorAll('input[name="chart-period"]');
     chartPeriods.forEach(radio => {
-        radio.addEventListener('change', (e) => {
-            // In a real app, this would filter the chart data
-            console.log('Chart period changed to:', e.target.value);
+        radio.addEventListener('change', async (e) => {
+            try {
+                const period = e.target.value;
+                const response = await api_GetDashboardChartData(period);
+                
+                if (response.ok) {
+                    const chartData = await response.json();
+                    createOrdersChart(chartData);
+                }
+            } catch (error) {
+                console.error('Error loading chart data:', error);
+            }
         });
     });
+    
+    // Export Excel button
+    const exportBtn = document.getElementById('export-excel');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', async () => {
+            try {
+                const response = await api_ExportDashboardExcel();
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'dashboard-export.xlsx';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                }
+            } catch (error) {
+                console.error('Error exporting Excel:', error);
+            }
+        });
+    }
+    
+    // View All buttons for navigation
+    setupNavigationButtons();
+}
+
+function setupNavigationButtons() {
+    // View All Orders button
+    const viewOrdersBtn = document.querySelector('a[data-route="/orders/"]');
+    if (viewOrdersBtn) {
+        viewOrdersBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            navigateTo('/orders/');
+        });
+    }
+    
+    // View All Invoices button
+    const viewInvoicesBtn = document.querySelector('a[data-route="/invoices/"]');
+    if (viewInvoicesBtn) {
+        viewInvoicesBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            navigateTo('/invoices/');
+        });
+    }
 }
 
 function showLoadingState() {
@@ -325,6 +375,8 @@ function showErrorState() {
 }
 
 function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
         month: 'short',

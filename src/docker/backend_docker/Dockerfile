@@ -21,6 +21,3 @@ COPY ./backend /water_app/
 
 COPY ./docker/backend_docker/entrypoint.sh /water_app/entrypoint.sh
 RUN chmod +x /water_app/entrypoint.sh
-
-
-ENTRYPOINT ["/water_app/entrypoint.sh"]

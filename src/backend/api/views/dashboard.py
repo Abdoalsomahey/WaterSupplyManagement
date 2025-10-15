@@ -9,7 +9,7 @@ from openpyxl import Workbook
 from datetime import timedelta
 
 from api.permissions import IsAdminOrManager
-from api.models import Customer, Complaint, Order, FinalInvoice
+from api.models import Customer, Complaint, Order, Invoice
 
 
 class DashboardViewSet(viewsets.ViewSet):
@@ -21,12 +21,12 @@ class DashboardViewSet(viewsets.ViewSet):
 
         total_orders = Order.objects.count()
         pending_orders = Order.objects.filter(status="pending").count()
-        total_revenue = FinalInvoice.objects.aggregate(total=Sum("total"))["total"] or 0
+        total_revenue = Invoice.objects.aggregate(total=Sum("total"))["total"] or 0
         active_customers = Customer.objects.count()
 
         today_orders = Order.objects.filter(created_at__date=today).count()
-        today_revenue = FinalInvoice.objects.filter(finalized_at__date=today).aggregate(total=Sum("total"))["total"] or 0
-        avg_order_value = FinalInvoice.objects.aggregate(avg=Avg("total"))["avg"] or 0
+        today_revenue = Invoice.objects.filter(created_at__date=today).aggregate(total=Sum("total"))["total"] or 0
+        avg_order_value = Invoice.objects.aggregate(avg=Avg("total"))["avg"] or 0
         conversion_rate = round(total_orders / active_customers, 2) if active_customers > 0 else 0
 
         return Response({
@@ -61,8 +61,8 @@ class DashboardViewSet(viewsets.ViewSet):
         )
 
         revenue = (
-            FinalInvoice.objects.filter(finalized_at__date__gte=start_date)
-            .extra(select={"day": "date(finalized_at)"})
+            Invoice.objects.filter(created_at__date__gte=start_date)
+            .extra(select={"day": "date(created_at)"})
             .values("day")
             .annotate(total=Sum("total"))
             .order_by("day")
@@ -90,14 +90,14 @@ class DashboardViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["get"])
     def recent_invoices(self, request):
-        invoices = FinalInvoice.objects.select_related("recheck__customer").order_by("-finalized_at")[:5]
+        invoices = Invoice.objects.select_related("customer").order_by("-created_at")[:5]
         data = [
             {
                 "id": i.id,
-                "customer": i.recheck.customer.full_name,
-                "status": "Paid" if i.total > 0 else "Unpaid",
+                "customer": i.customer.full_name if i.customer else "",
+                "status": i.status,
                 "amount": i.total,
-                "date": i.finalized_at,
+                "date": i.created_at,
             }
             for i in invoices
         ]
@@ -106,8 +106,9 @@ class DashboardViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["get"])
     def alerts(self, request):
         pending_orders = Order.objects.filter(status="pending").count()
-        overdue_invoices = FinalInvoice.objects.filter(
-            finalized_at__lt=timezone.now() - timedelta(days=30)
+        overdue_invoices = Invoice.objects.filter(
+            created_at__lt=timezone.now() - timedelta(days=30),
+            status__in=["draft", "sent", "approved"]
         ).count()
         new_complaints = Complaint.objects.filter(status="new").count()
 
@@ -123,7 +124,7 @@ class DashboardViewSet(viewsets.ViewSet):
 
         total_orders = Order.objects.count()
         pending_orders = Order.objects.filter(status="pending").count()
-        total_revenue = FinalInvoice.objects.aggregate(total=Sum("total"))["total"] or 0
+        total_revenue = Invoice.objects.aggregate(total=Sum("total"))["total"] or 0
         active_customers = Customer.objects.count()
 
         wb = Workbook()

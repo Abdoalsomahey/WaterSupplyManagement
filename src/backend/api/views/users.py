@@ -36,21 +36,29 @@ class UserViewSet(viewsets.ModelViewSet):
         sheet = workbook.active
         sheet.title = "Users"
 
-        headers = ["ID", "Username", "First Name", "Last Name", "Email", "Role", "Phone", "Date Joined", "Last Login"]
+        headers = [
+            "ID", "Username", "First Name", "Last Name", "Email", "Role",
+            "Phone", "Date Joined", "Last Login",
+            "UAE ID", "Vehicle Plate", "Plate No"
+        ]
         sheet.append(headers)
 
         for user in queryset:
+            driver_profile = getattr(user, "driverprofile", None)
             sheet.append([
-				user.id,
-				user.username,
-				user.first_name,
-				user.last_name,
-				user.email,
-				user.role,
-				user.phone,
-				user.date_joined.strftime("%Y-%m-%d %H:%M") if user.date_joined else "",
-				user.last_login.strftime("%Y-%m-%d %H:%M") if user.last_login else "",
-			])
+                user.id,
+                user.username,
+                user.first_name,
+                user.last_name,
+                user.email,
+                user.role,
+                user.phone,
+                user.date_joined.strftime("%Y-%m-%d %H:%M") if user.date_joined else "",
+                user.last_login.strftime("%Y-%m-%d %H:%M") if user.last_login else "",
+                getattr(driver_profile, "uae_id", "") if driver_profile else "",
+                getattr(driver_profile, "vehicle_plate", "") if driver_profile else "",
+                getattr(driver_profile, "plate_no", "") if driver_profile else "",
+            ])
 
         for col in sheet.columns:
             max_length = 0
@@ -65,8 +73,8 @@ class UserViewSet(viewsets.ModelViewSet):
             sheet.column_dimensions[col_letter].width = adjusted_width
 
         response = HttpResponse(
-			content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-		)
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
         response["Content-Disposition"] = 'attachment; filename="users.xlsx"'
         workbook.save(response)
         return response

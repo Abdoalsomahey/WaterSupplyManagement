@@ -20,13 +20,11 @@ done
 echo "Redis is up!"
 
 # ----------------------------------
-# Apply migrations & collect static files
+# Apply migrations
 # ----------------------------------
 echo "Applying migrations..."
-python manage.py migrate --noinput
-
-echo "Collecting static files..."
-python manage.py collectstatic --noinput
+python manage.py makemigrations api
+python manage.py migrate
 
 # ----------------------------------
 # Create superuser if not exists
@@ -53,6 +51,7 @@ END
 
 # ----------------------------------
 # Execute the command passed to container
-# (web: gunicorn, worker: celery worker, beat: celery beat)
+# (web: gunicorn,daphne)
 # ----------------------------------
-exec "$@"
+daphne -b 0.0.0.0 -p 8001 water_website.asgi:application &
+exec gunicorn water_website.wsgi:application --bind 0.0.0.0:8000

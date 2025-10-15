@@ -5,7 +5,6 @@ export function dom_Btn_Login() {
         event.preventDefault();
         const username = event.target.username.value;
         const password = event.target.password.value;
-		console.log(username, password)
         const response = await api_Login(username, password);
 		
         if (response.ok) {

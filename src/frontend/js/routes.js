@@ -6,6 +6,7 @@ import { render_Customers } from './views/customersViews.js';
 import { render_Orders } from './views/ordersViews.js';
 import { render_Complaints } from './views/complaintsViews.js';
 import { render_Invoices } from './views/invoicesViews.js';
+import { render_accountant } from './views/accountantViews.js';
 import { render_Users } from './views/usersViews.js';
 import { render_driver } from './views/driverViews.js';
 import { render_NotFound} from './views/errorViews.js';
@@ -16,6 +17,7 @@ import { initOrders } from './dom/ordersDom.js';
 import { initInvoices } from './dom/invoicesDom.js';
 import { initComplaints } from './dom/complaintsDom.js';
 import { initDriver } from './dom/driverDom.js';
+import { initAccountant } from './dom/accountantDom.js';
 import { init_NotFound } from './dom/errorDom.js';
 
 const routes = {
@@ -72,6 +74,13 @@ const routes = {
 		init: () => {
 			initInvoices();
 			console.log('Invoices loaded');
+		}
+	},
+	'/accountant/invoices/': {
+		template: render_accountant(),
+		init: () => {
+			initAccountant();
+			console.log('accountant Invoices loaded');
 		}
 	},
 	'/users/': {

@@ -1,206 +1,244 @@
+from io import BytesIO
+from django.http import HttpResponse
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
-from django.http import HttpResponse
-from io import BytesIO
 import openpyxl
+from openpyxl.utils import get_column_letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 
-from api.models import RecheckInvoice, FinalInvoice, User
-from api.serializers import RecheckInvoiceSerializer, FinalInvoiceSerializer
+
+from api.models import Invoice, User
+from api.serializers import InvoiceSerializer, AccountantInvoiceSerializer, SendToAccountantSerializer
 from api.permissions import IsAdminOrManager, IsAccountant
-from rest_framework.permissions import IsAuthenticated
 
 
-class AdminRecheckViewSet(viewsets.ModelViewSet):
-    queryset = RecheckInvoice.objects.all().order_by("-period_start")
-    serializer_class = RecheckInvoiceSerializer
+class InvoiceViewSet(viewsets.ModelViewSet):
+    queryset = Invoice.objects.select_related("customer", "assigned_to").all().order_by("-created_at")
+    serializer_class = InvoiceSerializer
     permission_classes = [IsAuthenticated, IsAdminOrManager]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["customer__full_name", "customer__phone", "customer__driver__username"]
-    filterset_fields = ["status", "assigned_to"]
+    filterset_fields = ["id", "status", "assigned_to"]
     ordering_fields = ["period_start", "total_gallons", "total_trips"]
 
+    def get_queryset(self):
+        return super().get_queryset()
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
     @action(detail=True, methods=["post"])
     def send_to_accountant(self, request, pk=None):
-        recheck = self.get_object()
-        if recheck.status != "draft":
-            return Response({"detail": "Already sent."}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = SendToAccountantSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        accountant_id = request.data.get("accountant_id")
-        if accountant_id:
-            try:
-                accountant = User.objects.get(id=accountant_id, role="accountant")
-            except User.DoesNotExist:
-                return Response({"detail": "Accountant not found."}, status=status.HTTP_404_NOT_FOUND)
-            recheck.assigned_to = accountant
+        accountant_username = serializer.validated_data["accountant_username"]
 
-        recheck.status = "sent"
-        recheck.save()
-        serializer = self.get_serializer(recheck)
-        return Response(serializer.data)
+        try:
+            accountant = User.objects.get(username=accountant_username, role="accountant")
+        except User.DoesNotExist:
+            return Response(
+                {"error": "Accountant not found or invalid role."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
+        invoice = self.get_object()
+        invoice.assigned_to = accountant
+        invoice.status = "sent"
+        invoice.save()
+
+        return Response(
+            {"detail": f"Invoice sent to accountant '{accountant_username}' successfully."},
+            status=status.HTTP_200_OK,
+        )
     @action(detail=False, methods=["get"])
     def export_excel(self, request):
         qs = self.filter_queryset(self.get_queryset())
+
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = "Recheck Invoices"
-        headers = ["Customer", "Phone", "Period Start", "Period End", "Total Trips", "Total Gallons", "Status"]
+        ws.title = "Invoices"
+        headers = [
+            "Customer", "Phone", "Period Start", "Period End",
+            "Total Trips", "Total Gallons", "Price/Gal",
+            "Subtotal", "VAT %", "VAT Amount", "Total",
+            "Status", "Assigned To", "Created By", "Created At"
+        ]
         ws.append(headers)
 
-        for r in qs:
+        for inv in qs:
             ws.append([
-                r.customer.full_name,
-                r.customer.phone,
-                r.period_start.strftime("%d/%m/%Y"),
-                r.period_end.strftime("%d/%m/%Y"),
-                r.total_trips,
-                r.total_gallons,
-                r.status
+                inv.customer.full_name if inv.customer else "",
+                inv.customer.phone if inv.customer else "",
+                inv.period_start.strftime("%Y-%m-%d") if inv.period_start else "",
+                inv.period_end.strftime("%Y-%m-%d") if inv.period_end else "",
+                inv.total_trips,
+                float(inv.total_gallons),
+                float(inv.price_per_gallon or 0),
+                float(inv.subtotal),
+                float(inv.vat_percent),
+                float(inv.vat_amount),
+                float(inv.total),
+                inv.status,
+                inv.assigned_to.username if inv.assigned_to else "",
+                inv.created_by.username if inv.created_by else "",
+                inv.created_at.strftime("%Y-%m-%d %H:%M") if inv.created_at else "",
             ])
+
+        for col in ws.columns:
+            max_length = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                if cell.value:
+                    l = len(str(cell.value))
+                    if l > max_length:
+                        max_length = l
+            ws.column_dimensions[col_letter].width = max_length + 2
 
         out = BytesIO()
         wb.save(out)
         out.seek(0)
-        response = HttpResponse(out.read(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        response["Content-Disposition"] = 'attachment; filename="recheck_invoices.xlsx"'
-        return response
+        resp = HttpResponse(out.read(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        resp["Content-Disposition"] = 'attachment; filename="invoices_admin_manager.xlsx"'
+        return resp
 
 
 class AccountantInvoiceViewSet(viewsets.ModelViewSet):
-    queryset = FinalInvoice.objects.select_related("recheck__customer").all().order_by("-finalized_at")
-    serializer_class = FinalInvoiceSerializer
+    queryset = Invoice.objects.select_related("customer", "assigned_to").all().order_by("-created_at")
+    serializer_class = AccountantInvoiceSerializer
     permission_classes = [IsAuthenticated, IsAccountant]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ["recheck__customer__full_name", "recheck__customer__phone", "recheck__customer__driver__username"]
-    filterset_fields = ["recheck__period_start"]
-    ordering_fields = ["finalized_at", "total"]
+    search_fields = ["customer__full_name", "customer__phone", "assigned_to__username"]
+    filterset_fields = ["id","status", "period_start", "period_end"]
+    ordering_fields = ["period_start", "total_gallons", "total_trips", "created_at"]
 
     def get_queryset(self):
-        return self.queryset.filter(recheck__assigned_to=self.request.user)
+        user = self.request.user
+        return self.queryset.filter(assigned_to=user)
 
-    def create(self, request, *args, **kwargs):
-        recheck_id = request.data.get("recheck")
-        price = request.data.get("price_per_gallon")
-        notes = request.data.get("notes", "")
 
-        if not recheck_id or price is None:
-            return Response({"detail": "recheck and price_per_gallon are required."}, status=status.HTTP_400_BAD_REQUEST)
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        invoice = self.get_object()
+        if invoice.status != "sent_to_accountant":
+            return Response(
+                {"error": "Only invoices sent to accountant can be approved."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        invoice.status = "approved"
+        invoice.save()
+        return Response({"detail": f"Invoice #{invoice.id} approved."}, status=status.HTTP_200_OK)
 
-        try:
-            recheck = RecheckInvoice.objects.get(pk=recheck_id, status="sent", assigned_to=request.user)
-        except RecheckInvoice.DoesNotExist:
-            return Response({"detail": "Recheck not found or not assigned to you."}, status=status.HTTP_404_NOT_FOUND)
-
-        final = FinalInvoice.objects.create(
-            recheck=recheck,
-            created_by=request.user,
-            price_per_gallon=price,
-            notes=notes
-        )
-        serializer = self.get_serializer(final)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    @action(detail=True, methods=["post"])
+    def mark_paid(self, request, pk=None):
+        invoice = self.get_object()
+        if invoice.status != "approved":
+            return Response(
+                {"error": "Only approved invoices can be marked as paid."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        invoice.status = "paid"
+        invoice.save()
+        return Response({"detail": f"Invoice #{invoice.id} marked as paid."}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"])
     def export_excel(self, request, pk=None):
-        final = self.get_object()
-        recheck = final.recheck
-        customer = recheck.customer
+        invoice = self.get_object()
+        customer = invoice.customer
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = f"Invoice_{customer.full_name}"
+        ws.title = f"Invoice_{invoice.id}"
 
-        # Header
-        ws.append(["Customer", customer.full_name])
-        ws.append(["Phone", customer.phone])
-        ws.append(["Area", customer.area or ""])
-        ws.append(["Account Number", customer.account_number or ""])
-        ws.append([])
-        ws.append(["Period Start", recheck.period_start.strftime("%d/%m/%Y")])
-        ws.append(["Period End", recheck.period_end.strftime("%d/%m/%Y")])
-        ws.append(["Total Trips", recheck.total_trips])
-        ws.append(["Total Gallons", recheck.total_gallons])
-        ws.append(["Price per Gallon", float(final.price_per_gallon)])
-        ws.append(["Subtotal", float(final.subtotal)])
-        ws.append(["VAT %", float(final.vat_percent)])
-        ws.append(["VAT Amount", float(final.vat_amount)])
-        ws.append(["Total", float(final.total)])
-        if final.notes:
+        ws.append(["Customer", customer.full_name if customer else ""])
+        ws.append(["Phone", customer.phone if customer else ""])
+        ws.append(["Period Start", invoice.period_start.strftime("%Y-%m-%d") if invoice.period_start else ""])
+        ws.append(["Period End", invoice.period_end.strftime("%Y-%m-%d") if invoice.period_end else ""])
+        ws.append(["Total Trips", invoice.total_trips])
+        ws.append(["Total Gallons", float(invoice.total_gallons)])
+        ws.append(["Price per Gallon", float(invoice.price_per_gallon or 0)])
+        ws.append(["Subtotal", float(invoice.subtotal)])
+        ws.append(["VAT %", float(invoice.vat_percent)])
+        ws.append(["VAT Amount", float(invoice.vat_amount)])
+        ws.append(["Total", float(invoice.total)])
+        if invoice.notes:
             ws.append([])
-            ws.append(["Notes", final.notes])
+            ws.append(["Notes", invoice.notes])
+
+        for col in ws.columns:
+            max_length = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                if cell.value:
+                    l = len(str(cell.value))
+                    if l > max_length:
+                        max_length = l
+            ws.column_dimensions[col_letter].width = max_length + 2
 
         out = BytesIO()
         wb.save(out)
         out.seek(0)
-        response = HttpResponse(out.read(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        response["Content-Disposition"] = f'attachment; filename="invoice_{final.id}.xlsx"'
-        return response
+        resp = HttpResponse(out.read(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        resp["Content-Disposition"] = f'attachment; filename="invoice_{invoice.id}.xlsx"'
+        return resp
 
     @action(detail=True, methods=["get"])
     def export_pdf(self, request, pk=None):
-        final = self.get_object()
-        recheck = final.recheck
-        customer = recheck.customer
+        invoice = self.get_object()
+        customer = invoice.customer
 
-        p = canvas.Canvas(buffer, pagesize=A4)
         buffer = BytesIO()
+        p = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
         y = height - 50
 
         p.setFont("Helvetica-Bold", 14)
-		# Header
-        p.drawString(50, y, f"Invoice #{final.id}")
+        p.drawString(50, y, f"Invoice #{invoice.id}")
         y -= 25
         p.setFont("Helvetica", 10)
-        p.drawString(50, y, f"Customer: {customer.full_name}")
+        p.drawString(50, y, f"Customer: {customer.full_name if customer else ''}")
         y -= 15
         p.drawString(50, y, f"Phone: {customer.phone or ''}")
-        y -= 15
-        p.drawString(50, y, f"Area: {customer.area or ''}")
-        y -= 25
+        y -= 20
 
-        # Table-like lines
+        # Header row
         p.setFont("Helvetica-Bold", 10)
         p.drawString(50, y, "Period")
-        p.drawString(150, y, "Trips")
-        p.drawString(230, y, "Gallons")
-        p.drawString(330, y, "Price/gal")
-        p.drawString(430, y, "Line Total")
+        p.drawString(200, y, "Trips")
+        p.drawString(300, y, "Gallons")
+        p.drawString(400, y, "Price/gal")
+        p.drawString(500, y, "Line Total")
         y -= 15
-        p.setFont("Helvetica", 10)
 
-        line_total = final.subtotal
-        period_str = f"{recheck.period_start.strftime('%d/%m/%Y')} → {recheck.period_end.strftime('%d/%m/%Y')}"
+        p.setFont("Helvetica", 10)
+        period_str = f"{invoice.period_start.strftime('%Y-%m-%d')} → {invoice.period_end.strftime('%Y-%m-%d')}" if invoice.period_start and invoice.period_end else ""
         p.drawString(50, y, period_str)
-        p.drawString(150, y, str(recheck.total_trips))
-        p.drawString(230, y, str(recheck.total_gallons))
-        p.drawString(330, y, f"{final.price_per_gallon:.2f}")
-        p.drawString(430, y, f"{line_total:.2f}")
+        p.drawString(200, y, str(invoice.total_trips))
+        p.drawString(300, y, str(invoice.total_gallons))
+        p.drawString(400, y, f"{float(invoice.price_per_gallon or 0):.2f}")
+        p.drawString(500, y, f"{float(invoice.subtotal):.2f}")
         y -= 30
 
-		# Summary
-        p.drawString(330, y, "Subtotal:")
-        p.drawString(430, y, f"{final.subtotal:.2f}")
+        p.drawString(400, y, "Subtotal:")
+        p.drawString(500, y, f"{float(invoice.subtotal):.2f}")
         y -= 15
-        p.drawString(330, y, f"VAT ({final.vat_percent}%):")
-        p.drawString(430, y, f"{final.vat_amount:.2f}")
+        p.drawString(400, y, f"VAT ({invoice.vat_percent}%):")
+        p.drawString(500, y, f"{float(invoice.vat_amount):.2f}")
         y -= 15
         p.setFont("Helvetica-Bold", 11)
-        p.drawString(330, y, "TOTAL:")
-        p.drawString(430, y, f"{final.total:.2f}")
-        y -= 30
+        p.drawString(400, y, "TOTAL:")
+        p.drawString(500, y, f"{float(invoice.total):.2f}")
+        y -= 20
 
-        if final.notes:
-             p.setFont("Helvetica", 9)
-             p.drawString(50, y, f"Notes: {final.notes}")
-             y -= 15
+        if invoice.notes:
+            p.setFont("Helvetica", 9)
+            p.drawString(50, y, f"Notes: {invoice.notes}")
 
         p.showPage()
         p.save()
